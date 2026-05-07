@@ -4,63 +4,88 @@ import plotly.express as px
 import google.generativeai as genai
 
 # 1. SETUP
-st.set_page_config(page_title="People Intelligence Engine", layout="wide")
+st.set_page_config(page_title="HR Intelligence Engine", layout="wide")
 
-# 2. API KEY SETUP
-# We will set this up in the hosting step later
+# Connect Gemini
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 else:
-    st.error("Missing API Key! Please set it in Streamlit Secrets.")
+    st.error("Missing API Key in Streamlit Secrets!")
 
-st.title("🛡️ People Intelligence One-Stop Shop")
-st.markdown("### Powered by Gemini AI")
+st.title("📊 Strategic People Intelligence")
+st.markdown("---")
 
-# 3. SIDEBAR - FILTERS (Demographics)
-st.sidebar.header("Filter Insights")
-gender = st.sidebar.multiselect("Gender", ["Female", "Male", "Other"], default=["Female", "Male", "Other"])
-bu = st.sidebar.multiselect("Business Unit", ["Sales", "Tech", "HR", "Marketing"], default=["Sales", "Tech", "HR", "Marketing"])
+# 2. FEEDING THE DATA
+# This looks for your file. If you haven't uploaded it to GitHub yet, it will use the "Upload" button.
+uploaded_file = st.sidebar.file_uploader("Upload Excel Data", type=['xlsx', 'csv'])
 
-# 4. DASHBOARD AREA (Charts)
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Engagement by Business Unit")
-    # Mock data - in a real app, this pulls from your uploaded CSV
-    df_bu = pd.DataFrame({"BU": ["Sales", "Tech", "HR", "Marketing"], "Engagement": [3.2, 4.5, 4.1, 3.8]})
-    fig1 = px.bar(df_bu, x="BU", y="Engagement", color="BU")
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    st.subheader("Retention Risk by Level")
-    df_lvl = pd.DataFrame({"Level": ["L1", "L2", "L3", "L4"], "Risk": [10, 25, 15, 5]})
-    fig2 = px.line(df_lvl, x="Level", y="Risk")
-    st.plotly_chart(fig2, use_container_width=True)
-
-# 5. THE DATA ABSORBER (RAG)
-uploaded_file = st.file_uploader("Upload your Survey/FGD Data (CSV or Text)")
-
-if uploaded_file:
+# If no file is uploaded yet, we show a message
+if uploaded_file is None:
+    st.info("💡 Welcome! Please upload your HR Excel sheet in the sidebar to begin the analysis.")
+else:
     # Read the data
-    if uploaded_file.name.endswith('.csv'):
-        data_text = pd.read_csv(uploaded_file).to_string()
+    if uploaded_file.name.endswith('.xlsx'):
+        df = pd.read_excel(uploaded_file)
     else:
-        data_text = uploaded_file.read().decode("utf-8")
-    
-    st.success("Data absorbed successfully!")
+        df = pd.read_csv(uploaded_file)
 
-    # THE CHAT BOX
-    query = st.chat_input("Ask a question (e.g., 'What are the chances of Akshay leaving?')")
+    # --- 3. THE DASHBOARD (PART 1 OF YOUR PROJECT) ---
+    st.header("📈 Organization Snapshot")
+    
+    # Create 3 columns for the 'Demographics'
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.subheader("Gender Distribution")
+        # Automatically detects 'Gender' column
+        if 'Gender' in df.columns:
+            fig_gen = px.pie(df, names='Gender', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_gen, use_container_width=True)
+        else:
+            st.write("Column 'Gender' not found.")
+
+    with c2:
+        st.subheader("BUs & Functions")
+        if 'BU' in df.columns:
+            fig_bu = px.bar(df['BU'].value_counts(), orientation='h', color_discrete_sequence=['#636EFA'])
+            st.plotly_chart(fig_bu, use_container_width=True)
+        else:
+            st.write("Column 'BU' not found.")
+
+    with c3:
+        st.subheader("Engagement by Level")
+        if 'Level' in df.columns and 'Engagement' in df.columns:
+            fig_lvl = px.box(df, x='Level', y='Engagement', color='Level')
+            st.plotly_chart(fig_lvl, use_container_width=True)
+        else:
+            st.write("Columns 'Level' or 'Engagement' not found.")
+
+    st.markdown("---")
+
+    # --- 4. THE AI INTELLIGENCE (PART 2) ---
+    st.header("🤖 AI Insights (Gemini)")
+    query = st.chat_input("Ask a deep-dive question (e.g. 'Identify flight risks in Sales')")
 
     if query:
-        with st.chat_message("user"):
-            st.write(query)
+        # Convert the data to text for the AI to read
+        raw_data_text = df.to_string()
+        
+        with st.spinner("Gemini is analyzing your data..."):
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            prompt = f"""
+            You are a Senior People Analytics Expert. 
+            Below is the employee data:
+            {raw_data_text}
             
-        # Ask Gemini
-        model = genai.GenerativeModel('gemini-1.5-pro')
-        prompt = f"You are an HR Director. Use this data: {data_text}. Question: {query}"
-        
-        response = model.generate_content(prompt)
-        
-        with st.chat_message("assistant"):
-            st.write(response.text)
+            Question: {query}
+            
+            Instructions:
+            1. Provide a professional, data-backed answer.
+            2. If predicting risk, mention the specific reasons found in the data.
+            3. Keep the tone executive and insightful.
+            """
+            
+            response = model.generate_content(prompt)
+            
+            with st.chat_message("assistant"):
+                st.write(response.text)
